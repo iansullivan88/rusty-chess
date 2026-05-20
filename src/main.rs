@@ -15,19 +15,18 @@ fn run_game() -> io::Result<()>  {
 
         input.clear();
         io::stdin().read_line(&mut input)?;
+        
+        let chess_moves = match parse_move(&input, &game.board, game.next_move) {
+            Err(e) => {
+                println!("Invalid move: {}", e);
+                continue;
+            }
+            Ok(chess_moves) => chess_moves
+        };
 
-        let parse_move_result = parse_move(&input);
-
-        if let Err(e) = parse_move_result {
-            println!("Move not applied: {}", e);
-            continue;
+        for chess_move in chess_moves {
+            println!("Move: {:?}", chess_move);
         }
-
-        let move_command = parse_move_result.unwrap();
-        println!("Command: {:?}", move_command)
-
-
-
     }
 }
 

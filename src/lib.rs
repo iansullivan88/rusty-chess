@@ -17,7 +17,7 @@ pub enum UnitKind {
     King
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum File {
     A,
     B,
@@ -46,7 +46,7 @@ pub const ALL_FILES: [File; 8] = [
     File::H
 ];
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Rank {
     One,
     Two,
@@ -93,14 +93,14 @@ impl Index<Square> for Board {
 
     fn index(&self, index: Square) -> &Self::Output {
         let Square(file, rank) = index;
-        &self.squares[rank.idx()][file.idx()]
+        &self.squares[7-rank.idx()][file.idx()]
     }
 }
 
 impl IndexMut<Square> for Board {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
         let Square(file, rank) = index;
-        &mut self.squares[rank.idx()][file.idx()]
+        &mut self.squares[7-rank.idx()][file.idx()]
     }
 }
 

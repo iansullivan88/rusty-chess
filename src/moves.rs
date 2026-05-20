@@ -1,6 +1,6 @@
 pub mod moves {
     use std::sync::LazyLock;
-    use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Rank, Square, Unit, UnitKind};
+    use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Rank, Square, UnitKind};
     use regex::{Match, Regex};
 
     static PIECE_MOVE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -52,16 +52,27 @@ pub mod moves {
         }
     }
 
-    pub fn to_move(command: &MoveCommand, board: Board, color: Color) -> Result<Move, String> {
+    pub fn parse_move(input: &str, board: &Board, color: Color) -> Result<Vec<Move>, String> {
+        let move_command = parse_move_command(input)?;
+        to_moves(move_command, board, color)
+    }
+
+    fn to_moves(command: MoveCommand, board: &Board, color: Color) -> Result<Vec<Move>, String> {
         match command {
-            MoveCommand::KingSideCastle => Ok(Move::KingSideCastle),
-            MoveCommand::QueenSideCastle => Ok(Move::QueenSideCastle),
-            MoveCommand::StandardMoveCommand{ source_rank, source_file, unit_kind , destination, promotion } => {
-                if (promotion.is_some() && *unit_kind != UnitKind::Pawn) {
-                    return Err(String::from("Only pawns may promote"))
+            MoveCommand::KingSideCastle => Ok(vec![Move::KingSideCastle]),
+            MoveCommand::QueenSideCastle => Ok(vec![Move::QueenSideCastle]),
+            MoveCommand::StandardMoveCommand{ source_rank, source_file, unit_kind , destination, promotion } => {      
+                if promotion.is_some() {
+                    if unit_kind == UnitKind::Pawn {
+                        if destination.1 != get_promotion_rank(color) {
+                            return Err(String::from("Cannot promote before the last rank"))
+                        }
+                    } else {
+                        return Err(String::from("Only pawns may promote"))
+                    }
                 }
                 
-                let destination_unit = board[*destination];
+                let destination_unit = board[destination];
                 let captured_unit_kind = match destination_unit {
                     None => None,
                     Some(unit) => if unit.color == color {
@@ -73,37 +84,49 @@ pub mod moves {
 
                 let possible_source_ranks: &[Rank] = match source_rank {
                     None => &ALL_RANKS,
-                    Some(rank) => &[*rank]
+                    Some(rank) => &[rank]
                 };
 
                 let possible_source_files: &[File] = match source_file {
                     None => &ALL_FILES,
-                    Some(file) => &[*file]
+                    Some(file) => &[file]
                 };
 
                 let mut matching_sources: Vec<Square> = Vec::new();
                 for rank in possible_source_ranks.iter().copied() {
                     for file in possible_source_files.iter().copied() {
                         if let Some(unit) = board[Square(file, rank)] {
-                            if (unit.color == color &&  unit.kind == *unit_kind) {
+                            if unit.color == color && unit.kind == unit_kind  {
                                 matching_sources.push(Square(file, rank));
                             }
                         }
                     }
                 }
 
-                let source = match matching_sources.len() {
-                    0 => return Err(String::from("No matching piece")),
-                    1 => matching_sources[0],
-                    _ => return Err(String::from("Ambiguous piece, specify rank or file"))
-                };
+                let mut moves: Vec<Move> = Vec::new();
 
-                Err(String::from("not finished yet"))
+                for source in matching_sources {
+                    if unit_kind == UnitKind::Pawn {
+                        if let Some(promotion_kind) = promotion {
+                            moves.push(Move::Promotion { from: source, to: destination, promote_to: promotion_kind, captured_unit: captured_unit_kind });
+                            continue;
+                        }
+                        // a pawn move to a different file without capture must be en passant
+                        else if destination_unit.is_none() && source.0 != destination.0 {
+                            moves.push(Move::EnPassant { from: source, to: destination });
+                            continue;
+                        }
+                    }
+
+                    moves.push(Move::Normal { from: source, to: destination, captured_unit: captured_unit_kind });
+                }
+
+                Ok(moves)
             }
         }
     }
 
-    pub fn parse_move(input: &str) -> Result<MoveCommand, String> {
+    fn parse_move_command(input: &str) -> Result<MoveCommand, String> {
         let input = input.trim();
 
         if input.eq_ignore_ascii_case("o-o") {
@@ -115,7 +138,7 @@ pub mod moves {
         }
         
         let Some(caps) = PIECE_MOVE_REGEX.captures(input) else {
-            return Err(String::from("Invalid command"))
+            return Err(String::from("Not a valid command"))
         };
 
         let unit_kind = match caps.name("piece") {
@@ -193,5 +216,12 @@ pub mod moves {
         };
 
         Some(kind)
+    }
+
+    fn get_promotion_rank(color: Color) -> Rank {
+        match color {
+            Color::Black => Rank::One,
+            Color::White => Rank::Eight
+        }
     }
 }
