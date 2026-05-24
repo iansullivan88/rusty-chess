@@ -1,4 +1,4 @@
-use chess::{Board, Color, Unit, Game, UnitKind, moves::moves::parse_move};
+use chess::{Board, Color, Game, Unit, UnitKind, moves::commands::{parse_move}};
 use std::io::{self, Write, BufWriter};
 
 fn main() {
