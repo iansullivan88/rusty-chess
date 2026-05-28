@@ -1,6 +1,7 @@
 use std::ops::{Index, IndexMut};
 
 pub mod moves;
+pub mod utilities;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Color {
@@ -93,22 +94,25 @@ impl Index<Square> for Board {
 
     fn index(&self, index: Square) -> &Self::Output {
         let Square(file, rank) = index;
-        &self.squares[7-rank.idx()][file.idx()]
+        &self.squares[(7)-rank.idx()][file.idx()]
     }
 }
 
 impl IndexMut<Square> for Board {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
         let Square(file, rank) = index;
-        &mut self.squares[7-rank.idx()][file.idx()]
+        &mut self.squares[(7)-rank.idx()][file.idx()]
     }
 }
 
 pub struct Game {
     pub board: Board,
     pub next_move: Color,
-    pub white_can_castle: bool,
-    pub black_can_castle: bool
+    pub white_can_king_side_castle: bool,
+    pub black_can_king_side_castle: bool,
+    pub white_can_queen_side_castle: bool,
+    pub black_can_queen_side_castle: bool,
+    pub en_passant_square: Option<Square>
 }
 
 impl Game {
@@ -125,8 +129,11 @@ impl Game {
 
         Self {
             next_move: Color::White,
-            white_can_castle: true,
-            black_can_castle: true,
+            white_can_king_side_castle: true,
+            black_can_king_side_castle: true,
+            white_can_queen_side_castle: true,
+            black_can_queen_side_castle: true,
+            en_passant_square: None,
             board: Board {
                 squares: [
                     create_row(Color::Black, pieces),
