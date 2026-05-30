@@ -184,6 +184,28 @@ const PROMOTION_UNITS: [UnitKind; 4] = [
     UnitKind::Bishop
 ];
 
+const SQUARES_BETWEEN_WHITE_KING_AND_QUEEN_SIDE_ROOK: [Square; 3] = [
+    Square(File::B, Rank::One),
+    Square(File::C, Rank::One),
+    Square(File::D, Rank::One)
+];
+
+const SQUARES_BETWEEN_WHITE_KING_AND_KING_SIDE_ROOK: [Square; 2] = [
+    Square(File::F, Rank::One),
+    Square(File::G, Rank::One)
+];
+
+const SQUARES_BETWEEN_BLACK_KING_AND_QUEEN_SIDE_ROOK: [Square; 3] = [
+    Square(File::B, Rank::Eight),
+    Square(File::C, Rank::Eight),
+    Square(File::D, Rank::Eight)
+];
+
+const SQUARES_BETWEEN_BLACK_KING_AND_KING_SIDE_ROOK: [Square; 2] = [
+    Square(File::F, Rank::Eight),
+    Square(File::G, Rank::Eight)
+];
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Move {
     Normal { from: Square, to: Square, captured_unit: Option<UnitKind> },
@@ -194,7 +216,6 @@ pub enum Move {
 }
 
 type MoveList = StackVector<Move, 256>;
-type SquareList = StackVector<Move, 22>;
 
 fn get_target_squares_for_offsets(board: &Board, square: Square, offsets: &[MoveOffset], moving_piece_color: Color, allow_capture: bool) -> impl Iterator<Item = Square> {
     offsets
@@ -248,12 +269,12 @@ pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square
 
     // castling
     if kind == UnitKind::King {
-        if (game.black_can_king_side_castle && color == Color::Black) ||
-           (game.white_can_king_side_castle && color == Color::White) {
+        if (game.black_can_king_side_castle && color == Color::Black && squares_are_empty(&game.board, &SQUARES_BETWEEN_BLACK_KING_AND_KING_SIDE_ROOK)) ||
+           (game.white_can_king_side_castle && color == Color::White && squares_are_empty(&game.board, &SQUARES_BETWEEN_WHITE_KING_AND_KING_SIDE_ROOK)) {
             moves.push(KingSideCastle);
         }
-        if (game.black_can_queen_side_castle && color == Color::Black) ||
-           (game.white_can_queen_side_castle && color == Color::White) {
+        if (game.black_can_queen_side_castle && color == Color::Black && squares_are_empty(&game.board, &SQUARES_BETWEEN_BLACK_KING_AND_QUEEN_SIDE_ROOK)) ||
+           (game.white_can_queen_side_castle && color == Color::White && squares_are_empty(&game.board, &SQUARES_BETWEEN_WHITE_KING_AND_QUEEN_SIDE_ROOK)) {
             moves.push(QueenSideCastle);
         }
     }
@@ -319,6 +340,10 @@ pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square
             moves.push(Move::Normal { from: square, to: destination_square, captured_unit: captured_unit_kind });
         }
     }
+}
+
+fn squares_are_empty(board: &Board, squares: &[Square]) -> bool {
+    squares.iter().all(|s| board[s].is_none())
 }
 
 fn get_promotion_rank(color: Color) -> Rank {

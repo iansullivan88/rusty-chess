@@ -98,8 +98,24 @@ impl Index<Square> for Board {
     }
 }
 
+impl Index<&Square> for Board {
+    type Output = Option<Unit>;
+
+    fn index(&self, index: &Square) -> &Self::Output {
+        let Square(file, rank) = index;
+        &self.squares[rank.idx() * 8 + file.idx()]
+    }
+}
+
 impl IndexMut<Square> for Board {
     fn index_mut(&mut self, index: Square) -> &mut Self::Output {
+        let Square(file, rank) = index;
+        &mut self.squares[rank.idx() * 8 + file.idx()]
+    }
+}
+
+impl IndexMut<&Square> for Board {
+    fn index_mut(&mut self, index: &Square) -> &mut Self::Output {
         let Square(file, rank) = index;
         &mut self.squares[rank.idx() * 8 + file.idx()]
     }
