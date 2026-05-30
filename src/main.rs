@@ -1,4 +1,4 @@
-use chess::{Board, Color, Game, Unit, UnitKind, moves::commands::{parse_move}};
+use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, moves::commands::parse_move};
 use std::io::{self, Write, BufWriter};
 
 fn main() {
@@ -16,7 +16,7 @@ fn run_game() -> io::Result<()>  {
         input.clear();
         io::stdin().read_line(&mut input)?;
         
-        let chess_moves = match parse_move(&input, &game.board, game.next_move) {
+        let chess_move = match parse_move(&input, &game) {
             Err(e) => {
                 println!("Invalid move: {}", e);
                 continue;
@@ -24,9 +24,7 @@ fn run_game() -> io::Result<()>  {
             Ok(chess_moves) => chess_moves
         };
 
-        for chess_move in chess_moves {
-            println!("Move: {:?}", chess_move);
-        }
+        println!("Move: {:?}", chess_move);
     }
 }
 
@@ -39,15 +37,15 @@ fn print_board(board: &Board) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = BufWriter::new(stdout.lock());
     
-    for (rank_index, rank) in board.squares.iter().enumerate() {
-        for (file_index, cell) in rank.iter().enumerate() {
+    for (rank_index, &rank) in ALL_RANKS.iter().rev().enumerate() {
+        for (file_index, &file) in ALL_FILES.iter().enumerate() {
             if (rank_index + file_index) % 2 == 0 {
                 writer.write_all(light_wood)?;
             } else {
                 writer.write_all(dark_wood)?;
             }
 
-            print_unit(&mut writer, cell)?;
+            print_unit(&mut writer, board[Square(file, rank)])?;
 
             writer.write_all(reset)?;
         }
@@ -60,7 +58,7 @@ fn print_board(board: &Board) -> io::Result<()> {
     io::Result::Ok(())
 }
 
-fn print_unit(writer: &mut BufWriter<io::StdoutLock<'_>>, maybe_unit: &Option<Unit>) -> io::Result<()> {
+fn print_unit(writer: &mut BufWriter<io::StdoutLock<'_>>, maybe_unit: Option<Unit>) -> io::Result<()> {
     
     // print color if required
     if let Some(unit) = maybe_unit {

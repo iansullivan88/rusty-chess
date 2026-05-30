@@ -1,7 +1,7 @@
 
-use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Rank, Square, UnitKind, moves::{Move, get_promotion_rank}};
+use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Game, Rank, Square, Unit, UnitKind, moves::{Move, MoveList, get_promotion_rank, populate_pseudo_legal_moves_for_source_square}};
 
-use std::sync::LazyLock;
+use std::{collections::HashSet, sync::LazyLock};
 use regex::{Match, Regex};
 
 static PIECE_MOVE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -21,78 +21,123 @@ pub enum MoveCommand {
     }
 }
 
-    pub fn parse_move(input: &str, board: &Board, color: Color) -> Result<Vec<Move>, String> {
+pub fn parse_move(input: &str, game: &Game) -> Result<Move, String> {
     let move_command = parse_move_command(input)?;
-    to_moves(move_command, board, color)
-}
 
-fn to_moves(command: MoveCommand, board: &Board, color: Color) -> Result<Vec<Move>, String> {
-    match command {
-        MoveCommand::KingSideCastle => Ok(vec![Move::KingSideCastle]),
-        MoveCommand::QueenSideCastle => Ok(vec![Move::QueenSideCastle]),
-        MoveCommand::StandardMoveCommand{ source_rank, source_file, unit_kind , destination, promotion } => {      
-            if promotion.is_some() {
-                if unit_kind == UnitKind::Pawn {
-                    if destination.1 != get_promotion_rank(color) {
-                        return Err(String::from("Cannot promote before the last rank"))
-                    }
-                } else {
-                    return Err(String::from("Only pawns may promote"))
-                }
+    // a move command can be ambiguous eg NA2 - could refer to a move by more than one knight
+    // get a list of possible moves this command could refer to
+    let possible_moves_for_command = match move_command {
+        MoveCommand::KingSideCastle => vec![Move::KingSideCastle],
+        MoveCommand::QueenSideCastle => vec![Move::QueenSideCastle],
+        MoveCommand::StandardMoveCommand { unit_kind, destination, source_rank, source_file, promotion } => {
+            generate_possible_standard_moves_for_command(&game.board,game.next_move, source_rank, source_file, unit_kind, destination, promotion)?
+        }
+    };
+
+    let moving_unit_kind = match move_command {
+        MoveCommand::KingSideCastle => UnitKind::King,
+        MoveCommand::QueenSideCastle => UnitKind::King,
+        MoveCommand::StandardMoveCommand { unit_kind, .. } => unit_kind
+    };
+
+    let mut pseudo_legal_moves_for_unit_kind = MoveList::new(Move::KingSideCastle);
+
+    for &rank in ALL_RANKS.iter() {
+        for &file in ALL_FILES.iter() {
+            if let Some(unit) = game.board[Square(file, rank)] && unit.kind == moving_unit_kind && unit.color == game.next_move {
+                populate_pseudo_legal_moves_for_source_square(game, Square(file, rank), &mut pseudo_legal_moves_for_unit_kind)
             }
-            
-            let destination_unit = board[destination];
-            let captured_unit_kind = match destination_unit {
-                None => None,
-                Some(unit) => if unit.color == color {
-                    return Err(String::from("Cannot capture own piece"))
-                } else {
-                    Some(unit.kind)
-                }
-            };
-
-            let possible_source_ranks: &[Rank] = match source_rank {
-                None => &ALL_RANKS,
-                Some(rank) => &[rank]
-            };
-
-            let possible_source_files: &[File] = match source_file {
-                None => &ALL_FILES,
-                Some(file) => &[file]
-            };
-
-            let mut matching_sources: Vec<Square> = Vec::new();
-            for rank in possible_source_ranks.iter().copied() {
-                for file in possible_source_files.iter().copied() {
-                    if let Some(unit) = board[Square(file, rank)] {
-                        if unit.color == color && unit.kind == unit_kind  {
-                            matching_sources.push(Square(file, rank));
-                        }
-                    }
-                }
-            }
-
-            let mut moves: Vec<Move> = Vec::new();
-
-            for source in matching_sources {
-                if unit_kind == UnitKind::Pawn {
-                    if let Some(promotion_kind) = promotion {
-                        moves.push(Move::Promotion { from: source, to: destination, promote_to: promotion_kind, captured_unit: captured_unit_kind });
-                        continue;
-                    }
-                    // a pawn move to a different file without capture must be en passant
-                    else if destination_unit.is_none() && source.0 != destination.0 {
-                        moves.push(Move::EnPassant { from: source, to: destination });
-                        continue;
-                    }
-                }
-
-                moves.push(Move::Normal { from: source, to: destination, captured_unit: captured_unit_kind });
-            }
-
-            Ok(moves)
         }
     }
+
+    let pseudo_legal_moves_for_unit_kind: HashSet<_> = pseudo_legal_moves_for_unit_kind
+        .to_slice()
+        .into_iter()
+        .collect();
+
+    let possible_pseudo_legal_moves_for_command: Vec<_> = possible_moves_for_command
+        .into_iter()
+        .filter(|m| pseudo_legal_moves_for_unit_kind.contains(m))
+        .collect();
+
+
+    if possible_pseudo_legal_moves_for_command.len() == 0 {
+        return Err(String::from("Not a legal move"))
+    }
+
+    if possible_pseudo_legal_moves_for_command.len() > 1 {
+        return Err(String::from("Ambiguous move, specify rank and/or file"))
+    }
+
+    let only_pseudo_legal_move = possible_pseudo_legal_moves_for_command[0];
+
+    // todo - make sure this is a legal move
+
+    return Ok(only_pseudo_legal_move);
+
+}
+
+fn generate_possible_standard_moves_for_command(board: &Board, color: Color, source_rank: Option<Rank>, source_file: Option<File>, unit_kind: UnitKind, destination: Square, promotion: Option<UnitKind>) -> Result<Vec<Move>, String> {    
+    if promotion.is_some() {
+        if unit_kind == UnitKind::Pawn {
+            if destination.1 != get_promotion_rank(color) {
+                return Err(String::from("Cannot promote before the last rank"))
+            }
+        } else {
+            return Err(String::from("Only pawns may promote"))
+        }
+    }
+    
+    let destination_unit = board[destination];
+    let captured_unit_kind = match destination_unit {
+        None => None,
+        Some(unit) => if unit.color == color {
+            return Err(String::from("Cannot capture own piece"))
+        } else {
+            Some(unit.kind)
+        }
+    };
+
+    let possible_source_ranks: &[Rank] = match source_rank {
+        None => &ALL_RANKS,
+        Some(rank) => &[rank]
+    };
+
+    let possible_source_files: &[File] = match source_file {
+        None => &ALL_FILES,
+        Some(file) => &[file]
+    };
+
+    let mut matching_sources: Vec<Square> = Vec::new();
+    for rank in possible_source_ranks.iter().copied() {
+        for file in possible_source_files.iter().copied() {
+            if let Some(unit) = board[Square(file, rank)] {
+                if unit.color == color && unit.kind == unit_kind  {
+                    matching_sources.push(Square(file, rank));
+                }
+            }
+        }
+    }
+
+    let mut moves: Vec<Move> = Vec::new();
+
+    for source in matching_sources {
+        if unit_kind == UnitKind::Pawn {
+            if let Some(promotion_kind) = promotion {
+                moves.push(Move::Promotion { from: source, to: destination, promote_to: promotion_kind, captured_unit: captured_unit_kind });
+                continue;
+            }
+            // a pawn move to a different file without capture must be en passant
+            else if destination_unit.is_none() && source.0 != destination.0 {
+                moves.push(Move::EnPassant { from: source, to: destination });
+                continue;
+            }
+        }
+
+        moves.push(Move::Normal { from: source, to: destination, captured_unit: captured_unit_kind });
+    }
+
+    Ok(moves)
 }
 
 fn parse_move_command(input: &str) -> Result<MoveCommand, String> {

@@ -1,8 +1,8 @@
 pub mod commands;
 
-use std::{iter, ops::{Index, IndexMut}, sync::LazyLock};
+use std::{ops::{Index, IndexMut}, sync::LazyLock};
 
-use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Game, Rank, Square, Unit, UnitKind, moves::Move::{KingSideCastle, QueenSideCastle}, utilities::StackVector};
+use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Game, Rank, Square, Unit, UnitKind, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
 
 #[derive(Copy, Clone)]
 struct MoveOffset { file: i8, rank: i8 }
@@ -96,6 +96,11 @@ fn to_ray_lookup_index(square: Square, direction: Direction) -> usize {
     (direction as usize) * 8 * 8 + (file as usize) * 8 + (rank as usize)
 }
 
+const LEFT_RIGHT_OFFSETS: [MoveOffset; 2] = [
+    MoveOffset { file: 1, rank: 0 },
+    MoveOffset { file: -1, rank: 0 }
+];
+
 const KING_MOVE_OFFSETS: [MoveOffset; 8] = [
     // clockwise, starting at midnight
     MoveOffset { file: 0, rank: 1 },
@@ -172,7 +177,14 @@ const QUEEN_DIRECTIONS: [Direction; 8] = [
     Direction::Upleft
 ];
 
-#[derive(Copy, Clone, Debug)]
+const PROMOTION_UNITS: [UnitKind; 4] = [
+    UnitKind::Queen,
+    UnitKind::Knight,
+    UnitKind::Rook,
+    UnitKind::Bishop
+];
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Move {
     Normal { from: Square, to: Square, captured_unit: Option<UnitKind> },
     KingSideCastle,
@@ -229,7 +241,7 @@ fn get_target_squares_for_directions(board: &Board, square: Square, directions: 
         })
 }
 
-fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square, moves: &mut MoveList) {
+pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square, moves: &mut MoveList) {
     let Some(Unit { color, kind }) = game.board[square] else {
         return;
     };
@@ -247,15 +259,20 @@ fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square, mo
     }
 
     let mut destination_squares: StackVector<Square, 27> = StackVector::new(Square(File::A, Rank::One));
-    
+
     match kind {
         UnitKind::Pawn => {
-            // en passant (TODO)
+            // en passant
             if let Some(en_passant_square) = game.en_passant_square {
-
+                if en_passant_square.1 == square.1 && en_passant_square.0.idx().abs_diff(square.0.idx()) == 1 {
+                    let rank_move_offset: i32 = if color == Color::White { 1 } else { -1 };
+                    let destination_file = en_passant_square.0;
+                    let destination_rank = ALL_RANKS[(square.1.idx() as i32 + rank_move_offset) as usize];
+                    moves.push(EnPassant { from: square, to: Square(destination_file, destination_rank) });
+                }
             }
 
-            // pawn captures (TODO)
+            // pawn captures
             let capture_offsets = if color == Color::White {
                 &WHITE_PAWN_CAPTURE_OFFSETS
             } else {
@@ -288,6 +305,18 @@ fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square, mo
         }
         UnitKind::Queen => {
             destination_squares.extend(get_target_squares_for_directions(&game.board, square, &QUEEN_DIRECTIONS, game.next_move));
+        }
+    }
+
+    for &destination_square in destination_squares.to_slice() {
+        let captured_unit_kind = game.board[destination_square].map(|u| u.kind);
+        if kind == UnitKind::Pawn && destination_square.1 == get_promotion_rank(color) {
+            for promotion_unit in PROMOTION_UNITS {
+                moves.push(Move::Promotion { from: square, to: destination_square, promote_to: promotion_unit, captured_unit: captured_unit_kind });
+            }
+        } else {
+            // no promotion
+            moves.push(Move::Normal { from: square, to: destination_square, captured_unit: captured_unit_kind });
         }
     }
 }
