@@ -1,3 +1,5 @@
+use std::ops::Index;
+
 #[derive(Copy, Clone, Debug)]
 pub struct StackVector<T, const N: usize> {
     items: [T; N],
@@ -23,6 +25,10 @@ impl<T, const N: usize> StackVector<T, N> {
     pub fn to_slice(&self) -> &[T] {
         &self.items[0..self.size]
     }
+
+    pub fn len(&self) -> usize {
+        self.size
+    }
 }
 
 impl<T, const N: usize> Extend<T> for StackVector<T, N> {
@@ -30,5 +36,16 @@ impl<T, const N: usize> Extend<T> for StackVector<T, N> {
         for item in iter {
             self.push(item);
         }
+    }
+}
+
+impl<T, const N: usize> Index<usize> for StackVector<T, N> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if index >= N {
+            panic!("StackVector index out of bounds {}", index);
+        }
+        &self.items[index]
     }
 }

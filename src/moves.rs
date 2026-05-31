@@ -2,7 +2,7 @@ pub mod commands;
 
 use std::{ops::{Index, IndexMut}, path::Component::ParentDir, sync::LazyLock};
 
-use crate::{ALL_FILES, ALL_RANKS, Board, Color::{self, Black}, File, Game, Rank, Square, Unit, UnitKind::{self, Pawn}, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
+use crate::{ALL_FILES, ALL_RANKS, Board, Color::{self, Black}, File, Game, Rank, Square, Unit, UnitKind::{self, Pawn}, get_other_color, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
 
 #[derive(Copy, Clone)]
 struct MoveOffset { file: i8, rank: i8 }
@@ -125,31 +125,13 @@ const KNIGHT_MOVE_OFFSETS: [MoveOffset; 8] = [
 ];
 
 const WHITE_PAWN_CAPTURE_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: 1, rank: 1 },
-    MoveOffset { file: 1, rank: -1 }
+    MoveOffset { file: -1, rank: 1 },
+    MoveOffset { file: 1, rank: 1 }
 ];
 
 const BLACK_PAWN_CAPTURE_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: 1, rank: 1 },
+    MoveOffset { file: -1, rank: -1 },
     MoveOffset { file: 1, rank: -1 }
-];
-
-const STARTING_WHITE_PAWN_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: 0, rank: 1 },
-    MoveOffset { file: 0, rank: 2 }
-];
-
-const STARTING_BLACK_PAWN_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: 0, rank: -1 },
-    MoveOffset { file: 0, rank: -2 }
-];
-
-const WHITE_PAWN_OFFSETS: [MoveOffset; 1] = [
-    MoveOffset { file: 0, rank: 1 }
-];
-
-const BLACK_PAWN_OFFSETS: [MoveOffset; 1] = [
-    MoveOffset { file: 0, rank: -1 }
 ];
 
 const BLACK_KING_ATTACKING_PAWN_OFFSETS: [MoveOffset; 2] = [
@@ -161,6 +143,9 @@ const WHITE_KING_ATTACKING_PAWN_OFFSETS: [MoveOffset; 2] = [
     MoveOffset { file: -1, rank: 1 },
     MoveOffset { file: 1, rank: 1 }
 ];
+
+const WHITE_MOVE_ONE_FORWARD: MoveOffset = MoveOffset { file: 0, rank: 1 };
+const BLACK_MOVE_ONE_FORWARD: MoveOffset = MoveOffset { file: 0, rank: -1 };
 
 const BISHOP_DIRECTIONS: [Direction; 4] = [
     Direction::UpRight,
@@ -225,13 +210,13 @@ pub enum Move {
     Promotion { from: Square, to: Square, promote_to: UnitKind, captured_unit: Option<UnitKind> }
 }
 
-type MoveList = StackVector<Move, 256>;
+pub type MoveList = StackVector<Move, 256>;
 
-fn get_target_squares_for_offsets(board: &Board, square: Square, offsets: &[MoveOffset], moving_piece_color: Color, allow_capture: bool) -> impl Iterator<Item = Square> {
+fn get_target_squares_for_offsets(board: &Board, square: Square, offsets: &[MoveOffset], moving_piece_color: Color) -> impl Iterator<Item = Square> {
     offsets
         .iter()
         .filter_map(move |&o| add_offset(square, o))
-        .filter(move |&destination_square| board[destination_square].is_none_or(|p| allow_capture && p.color != moving_piece_color))
+        .filter(move |&destination_square| board[destination_square].is_none_or(|p| p.color != moving_piece_color))
 }
 
 fn get_target_squares_for_pawn_capture_offsets(board: &Board, square: Square, offsets: &[MoveOffset], moving_piece_color: Color) -> impl Iterator<Item = Square> {
@@ -303,6 +288,10 @@ pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square
         return;
     };
 
+    if color != game.next_move {
+        return;
+    }
+
     // castling
     if kind == UnitKind::King {
         if (game.black_can_king_side_castle && color == Color::Black && squares_are_empty(&game.board, &SQUARES_BETWEEN_BLACK_KING_AND_KING_SIDE_ROOK)) ||
@@ -339,20 +328,28 @@ pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square
             destination_squares.extend(get_target_squares_for_pawn_capture_offsets(&game.board, square, capture_offsets, game.next_move));
 
             // pawn moves
-            let offsets: &[MoveOffset] = match (square.1, color) {
-                (Rank::Two, Color::White) => &STARTING_WHITE_PAWN_OFFSETS,
-                (Rank::Seven, Color::Black) => &STARTING_BLACK_PAWN_OFFSETS,
-                (_, Color::White) => &WHITE_PAWN_OFFSETS,
-                (_, Color::Black) => &BLACK_PAWN_OFFSETS,
-            };
+            let move_offset = if color == Color::White { WHITE_MOVE_ONE_FORWARD } else { BLACK_MOVE_ONE_FORWARD };
+            let one_space_forward = add_offset(square, move_offset);
+            if let Some(one_space_forward) = one_space_forward && game.board[one_space_forward].is_none() {
+                // single move
+                destination_squares.push(one_space_forward);
 
-            destination_squares.extend(get_target_squares_for_offsets(&game.board, square, offsets, game.next_move, false));
+                let is_starting_pawn = (color == Color::White && square.1 == Rank::Two)
+                    || (color == Color::Black && square.1 == Rank::Seven);
+
+                // two space move
+                if is_starting_pawn {
+                    if let Some(two_spaces_forward) = add_offset(one_space_forward, move_offset) && game.board[two_spaces_forward].is_none() {
+                        destination_squares.push(two_spaces_forward);
+                    }
+                }
+            }
         }
         UnitKind::King => {
-            destination_squares.extend(get_target_squares_for_offsets(&game.board, square, &KING_MOVE_OFFSETS, game.next_move, true));
+            destination_squares.extend(get_target_squares_for_offsets(&game.board, square, &KING_MOVE_OFFSETS, game.next_move));
         }
         UnitKind::Knight => {
-            destination_squares.extend(get_target_squares_for_offsets(&game.board, square, &KNIGHT_MOVE_OFFSETS, game.next_move, true));
+            destination_squares.extend(get_target_squares_for_offsets(&game.board, square, &KNIGHT_MOVE_OFFSETS, game.next_move));
         }
         UnitKind::Bishop => {
             destination_squares.extend(get_target_squares_for_directions(&game.board, square, &BISHOP_DIRECTIONS, game.next_move));
@@ -483,11 +480,11 @@ pub fn apply_move_to_game(game: &mut Game, r#move: Move) {
         } else {
             game.en_passant_square = None;
         }
-
-        apply_move_to_board(&mut game.board, game.next_move, r#move);
-
-        game.next_move = get_other_color(game.next_move);
     }
+
+    apply_move_to_board(&mut game.board, game.next_move, r#move);
+
+    game.next_move = get_other_color(game.next_move);
 }
 
 pub fn apply_move_to_board(board: &mut Board, color: Color, r#move: Move) {
@@ -566,9 +563,26 @@ fn revert_move_to_board(board: &mut Board, color: Color, r#move: Move) {
     }
 }
 
-fn get_other_color(color: Color) -> Color {
-    match color {
-        Color::White => Color::Black,
-        Color::Black => Color::White
+pub fn get_legal_moves(game: &mut Game) -> MoveList {
+    let mut pseudo_legal_moves = MoveList::new(Move::KingSideCastle);
+    for file in ALL_FILES {
+        for rank in ALL_RANKS {
+            populate_pseudo_legal_moves_for_source_square(game, Square(file, rank), &mut pseudo_legal_moves);
+        }
     }
+
+    let king_position = if game.next_move == Color::White { game.white_king_position } else { game.black_king_position };
+
+    let mut legal_moves = MoveList::new(Move::KingSideCastle);
+    let legal_move_iterator = pseudo_legal_moves
+        .to_slice()
+        .iter()
+        .copied()
+        .filter(|&m| is_legal_move(&mut game.board, king_position, game.next_move, m));
+
+    for legal_move in legal_move_iterator {
+        legal_moves.push(legal_move);
+    }
+
+    legal_moves
 }

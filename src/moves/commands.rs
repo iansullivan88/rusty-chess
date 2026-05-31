@@ -5,7 +5,7 @@ use std::{collections::HashSet, sync::LazyLock};
 use regex::{Match, Regex};
 
 static PIECE_MOVE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(?<piece>[KQNBR])?(?<source_file>[a-h])?(?<source_rank>[1-8])?(?<file>[a-h])(?<rank>[1-8])(=(?<promotion>[KQNBR]))?$").unwrap()
+    Regex::new(r"^(?<piece>[KQNBR])?(?<source_file>[a-h])?(?<source_rank>[1-8])?(?<file>[a-h])(?<rank>[1-8])(=(?<promotion>[KQNBR]))?$").unwrap()
 });
 
 #[derive(Copy, Clone, Debug)]
@@ -39,6 +39,12 @@ pub fn parse_move(input: &str, game: &mut Game) -> Result<Move, String> {
         MoveCommand::QueenSideCastle => UnitKind::King,
         MoveCommand::StandardMoveCommand { unit_kind, .. } => unit_kind
     };
+
+    if let MoveCommand::StandardMoveCommand { unit_kind, destination, promotion, .. } = move_command {
+        if unit_kind == UnitKind::Pawn && destination.1 == get_promotion_rank(game.next_move) && promotion.is_none() {
+            return Err(String::from("You must specify which unit kind to promote to"))
+        }
+    }
 
     let mut pseudo_legal_moves_for_unit_kind = MoveList::new(Move::KingSideCastle);
 
@@ -213,8 +219,7 @@ fn parse_rank(input: &str) -> Option<Rank> {
 }
 
 fn parse_file(input: &str) -> Option<File> {
-    let lower = input.to_lowercase();
-    match lower.as_str() {
+    match input {
         "a" => Some(File::A),
         "b" => Some(File::B),
         "c" => Some(File::C),

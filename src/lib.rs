@@ -2,10 +2,20 @@ use std::{fmt, ops::{Index, IndexMut}};
 
 pub mod moves;
 pub mod utilities;
+pub mod analysis;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Color {
     White, Black
+}
+
+impl fmt::Display for Color {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+         match self {
+            Color::White => write!(f, "White"),
+            Color::Black => write!(f, "Black")
+         }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -193,5 +203,12 @@ impl Game {
             white_king_position: Square(File::E, Rank::One),
             black_king_position: Square(File::E, Rank::Eight)
         }
+    }
+}
+
+pub fn get_other_color(color: Color) -> Color {
+    match color {
+        Color::White => Color::Black,
+        Color::Black => Color::White
     }
 }
