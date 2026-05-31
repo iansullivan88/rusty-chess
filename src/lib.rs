@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut};
+use std::{fmt, ops::{Index, IndexMut}};
 
 pub mod moves;
 pub mod utilities;
@@ -36,6 +36,21 @@ impl File {
     }
 }
 
+impl fmt::Display for File {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            File::A => write!(f, "A"),
+            File::B => write!(f, "B"),
+            File::C => write!(f, "C"),
+            File::D => write!(f, "D"),
+            File::E => write!(f, "E"),
+            File::F => write!(f, "F"),
+            File::G => write!(f, "G"),
+            File::H => write!(f, "H")
+        }
+    }
+}
+
 pub const ALL_FILES: [File; 8] = [
     File::A,
     File::B,
@@ -62,6 +77,12 @@ pub enum Rank {
 impl Rank {
     fn idx(self) -> usize {
         self as usize
+    }
+}
+
+impl fmt::Display for Rank {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.idx() + 1)
     }
 }
 
@@ -128,7 +149,9 @@ pub struct Game {
     pub black_can_king_side_castle: bool,
     pub white_can_queen_side_castle: bool,
     pub black_can_queen_side_castle: bool,
-    pub en_passant_square: Option<Square>
+    pub en_passant_square: Option<Square>,
+    pub white_king_position: Square,
+    pub black_king_position: Square
 }
 
 impl Game {
@@ -166,7 +189,9 @@ impl Game {
             white_can_queen_side_castle: true,
             black_can_queen_side_castle: true,
             en_passant_square: None,
-            board: board
+            board: board,
+            white_king_position: Square(File::E, Rank::One),
+            black_king_position: Square(File::E, Rank::Eight)
         }
     }
 }

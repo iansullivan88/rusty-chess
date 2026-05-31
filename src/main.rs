@@ -1,12 +1,12 @@
-use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, moves::commands::parse_move};
-use std::io::{self, Write, BufWriter};
+use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, moves::{apply_move_to_game, commands::parse_move}};
+use std::io::{self, BufWriter, StdoutLock, Write};
 
 fn main() {
     run_game().expect("Unexpected error");
 }
 
 fn run_game() -> io::Result<()>  {
-    let game = Game::new();
+    let mut game = Game::new();
     let mut input = String::new();
 
     loop {
@@ -16,19 +16,28 @@ fn run_game() -> io::Result<()>  {
         input.clear();
         io::stdin().read_line(&mut input)?;
         
-        let chess_move = match parse_move(&input, &game) {
+        match parse_move(&input, &mut game) {
             Err(e) => {
                 println!("Invalid move: {}", e);
                 continue;
             }
-            Ok(chess_moves) => chess_moves
+            Ok(r#move) => {
+                apply_move_to_game(&mut game, r#move);
+            }
         };
-
-        println!("Move: {:?}", chess_move);
     }
 }
 
 fn print_board(board: &Board) -> io::Result<()> {
+
+    fn write_files(writer: &mut BufWriter<StdoutLock<'_>>) -> io::Result<()> {
+        write!(writer, "  ")?;
+        for file in ALL_FILES {
+            write!(writer, "{} " , file)?;
+        }
+        write!(writer, "\n")?;
+        Ok(())
+    }
 
     let light_wood = b"\x1B[48;2;213;176;124m";
     let dark_wood  = b"\x1B[48;2;125;88;57m";
@@ -37,7 +46,10 @@ fn print_board(board: &Board) -> io::Result<()> {
     let stdout = io::stdout();
     let mut writer = BufWriter::new(stdout.lock());
     
+    write_files(&mut writer)?;
     for (rank_index, &rank) in ALL_RANKS.iter().rev().enumerate() {
+        write!(writer, "{} ", rank)?;
+
         for (file_index, &file) in ALL_FILES.iter().enumerate() {
             if (rank_index + file_index) % 2 == 0 {
                 writer.write_all(light_wood)?;
@@ -50,8 +62,12 @@ fn print_board(board: &Board) -> io::Result<()> {
             writer.write_all(reset)?;
         }
 
-        write!(writer, "\n")?;
+        write!(writer, " {}\n", rank)?;
     }
+
+    write_files(&mut writer)?;
+    
+    write!(writer, "\n")?;
 
     writer.write_all(reset)?;
 

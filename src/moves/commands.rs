@@ -1,11 +1,11 @@
 
-use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Game, Rank, Square, Unit, UnitKind, moves::{Move, MoveList, get_promotion_rank, populate_pseudo_legal_moves_for_source_square}};
+use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Game, Rank, Square, UnitKind, moves::{Move, MoveList, get_promotion_rank, is_legal_move, populate_pseudo_legal_moves_for_source_square}};
 
 use std::{collections::HashSet, sync::LazyLock};
 use regex::{Match, Regex};
 
 static PIECE_MOVE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?<piece>[KQNBR])?(?<source_file>[a-h])?(?<source_rank>[1-8])?(?<file>[a-h])(?<rank>[1-8])(=(?<promotion>[KQNBR]))?$").unwrap()
+    Regex::new(r"(?i)^(?<piece>[KQNBR])?(?<source_file>[a-h])?(?<source_rank>[1-8])?(?<file>[a-h])(?<rank>[1-8])(=(?<promotion>[KQNBR]))?$").unwrap()
 });
 
 #[derive(Copy, Clone, Debug)]
@@ -21,7 +21,7 @@ pub enum MoveCommand {
     }
 }
 
-pub fn parse_move(input: &str, game: &Game) -> Result<Move, String> {
+pub fn parse_move(input: &str, game: &mut Game) -> Result<Move, String> {
     let move_command = parse_move_command(input)?;
 
     // a move command can be ambiguous eg NA2 - could refer to a move by more than one knight
@@ -71,7 +71,11 @@ pub fn parse_move(input: &str, game: &Game) -> Result<Move, String> {
 
     let only_pseudo_legal_move = possible_pseudo_legal_moves_for_command[0];
 
-    // todo - make sure this is a legal move
+    let king_position = if game.next_move == Color::White { game.white_king_position } else { game.black_king_position };
+    
+    if !is_legal_move(&mut game.board, king_position, game.next_move, only_pseudo_legal_move) {
+        return Err(String::from("Cannot leave own king in check"))
+    }
 
     return Ok(only_pseudo_legal_move);
 
@@ -157,14 +161,17 @@ fn parse_move_command(input: &str) -> Result<MoveCommand, String> {
 
     let unit_kind = match caps.name("piece") {
         None => UnitKind::Pawn,
-        Some(cap_match) => match cap_match.as_str() {
-            "B" => UnitKind::Bishop,
-            "K" => UnitKind::King,
-            "N" => UnitKind::Knight,
-            "R" => UnitKind::Rook,
-            "Q" => UnitKind::Queen,
-            otherwise => return Err(format!("Invalid unit kind {}", otherwise)) 
-        } 
+        Some(cap_match) => { 
+            let upper = cap_match.as_str().to_uppercase();
+            match upper.as_str() {
+                "B" => UnitKind::Bishop,
+                "K" => UnitKind::King,
+                "N" => UnitKind::Knight,
+                "R" => UnitKind::Rook,
+                "Q" => UnitKind::Queen,
+                otherwise => return Err(format!("Invalid unit kind {}", otherwise)) 
+            }
+        }
     };
 
     fn match_to_rank(rank_match: Match) -> Rank {
@@ -206,7 +213,8 @@ fn parse_rank(input: &str) -> Option<Rank> {
 }
 
 fn parse_file(input: &str) -> Option<File> {
-    match input {
+    let lower = input.to_lowercase();
+    match lower.as_str() {
         "a" => Some(File::A),
         "b" => Some(File::B),
         "c" => Some(File::C),

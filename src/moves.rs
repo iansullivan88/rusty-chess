@@ -1,8 +1,8 @@
 pub mod commands;
 
-use std::{ops::{Index, IndexMut}, sync::LazyLock};
+use std::{ops::{Index, IndexMut}, path::Component::ParentDir, sync::LazyLock};
 
-use crate::{ALL_FILES, ALL_RANKS, Board, Color, File, Game, Rank, Square, Unit, UnitKind, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
+use crate::{ALL_FILES, ALL_RANKS, Board, Color::{self, Black}, File, Game, Rank, Square, Unit, UnitKind::{self, Pawn}, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
 
 #[derive(Copy, Clone)]
 struct MoveOffset { file: i8, rank: i8 }
@@ -152,6 +152,16 @@ const BLACK_PAWN_OFFSETS: [MoveOffset; 1] = [
     MoveOffset { file: 0, rank: -1 }
 ];
 
+const BLACK_KING_ATTACKING_PAWN_OFFSETS: [MoveOffset; 2] = [
+    MoveOffset { file: -1, rank: -1 },
+    MoveOffset { file: 1, rank: -1 }
+];
+
+const WHITE_KING_ATTACKING_PAWN_OFFSETS: [MoveOffset; 2] = [
+    MoveOffset { file: -1, rank: 1 },
+    MoveOffset { file: 1, rank: 1 }
+];
+
 const BISHOP_DIRECTIONS: [Direction; 4] = [
     Direction::UpRight,
     Direction::DownRight,
@@ -231,15 +241,23 @@ fn get_target_squares_for_pawn_capture_offsets(board: &Board, square: Square, of
         .filter(move |&destination_square| board[destination_square].is_some_and(|p| p.color != moving_piece_color))
 }
 
+fn is_piece_at_offset(board: &Board, source: Square, offsets: &[MoveOffset], kind: UnitKind, color: Color) -> bool {
+    offsets
+        .iter()
+        .filter_map(|&o| add_offset(source, o))
+        .filter_map(|s| board[s])
+        .any(|p| p.color == color && p.kind == kind)
+}
+
 fn get_target_squares_for_directions(board: &Board, square: Square, directions: &[Direction], moving_piece_color: Color) -> impl Iterator<Item = Square> {
     directions
         .iter()
-        .flat_map(move |direction| {
+        .flat_map(move |&direction| {
             let mut hit_piece = false;
 
             // move along a direction and stop when hitting a piece
             // include the piece in the result if it is an enemy piece (capture)
-            RAY_LOOKUP[(square, *direction)].to_slice()
+            RAY_LOOKUP[(square, direction)].to_slice()
                 .iter()
                 .copied()
                 .filter_map(move |destination_square| {
@@ -260,6 +278,24 @@ fn get_target_squares_for_directions(board: &Board, square: Square, directions: 
                     }
                 })
         })
+}
+
+fn is_next_piece_on_ray_of_kind(board: &Board, source: Square, directions: &[Direction], color: Color, kind1: UnitKind, kind2: UnitKind) -> bool {
+    for &direction in directions {
+        let first_piece_in_direction = RAY_LOOKUP[(source, direction)]
+            .to_slice()
+            .iter()
+            .filter_map(|&p| board[p])
+            .next();
+
+        if let Some(first_piece_in_direction) = first_piece_in_direction {
+            if (first_piece_in_direction.color == color && (first_piece_in_direction.kind == kind1 || first_piece_in_direction.kind == kind2)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square, moves: &mut MoveList) {
@@ -353,6 +389,13 @@ fn get_promotion_rank(color: Color) -> Rank {
     }
 }
 
+fn get_back_rank(color: Color) -> Rank {
+    match color {
+        Color::Black => Rank::Eight,
+        Color::White => Rank::One
+    }
+}
+
 fn add_offset(square: Square, offset: MoveOffset) -> Option<Square> {
     let new_file_idx = (square.0.idx() as i8) + offset.file;
     let new_rank_idx = (square.1.idx() as i8) + offset.rank;
@@ -366,4 +409,166 @@ fn add_offset(square: Square, offset: MoveOffset) -> Option<Square> {
         } else {
             None
         }
+}
+
+pub fn is_legal_move(board: &mut Board, king_position: Square, color: Color, pseudo_legal_move: Move) -> bool {
+    apply_move_to_board(board, color, pseudo_legal_move);
+
+    let other_color = get_other_color(color);
+    let mut is_king_checked = false;
+    
+    // is king checked by knight
+    is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, &KNIGHT_MOVE_OFFSETS, UnitKind::Knight, other_color);
+
+    // is king checked by pawn
+    let attacking_pawn_offsets = if color == Color::White { &WHITE_KING_ATTACKING_PAWN_OFFSETS } else { &BLACK_KING_ATTACKING_PAWN_OFFSETS };
+    is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, attacking_pawn_offsets, UnitKind::Pawn, other_color);
+
+    // is king checked by a diagonal moving piece
+    is_king_checked = is_king_checked || is_next_piece_on_ray_of_kind(board, king_position, &BISHOP_DIRECTIONS, other_color, UnitKind::Bishop, UnitKind::Queen);
+    
+    // is king checked by a horizontal moving piece
+    is_king_checked = is_king_checked || is_next_piece_on_ray_of_kind(board, king_position, &ROOK_DIRECTIONS, other_color, UnitKind::Rook, UnitKind::Queen);
+
+    revert_move_to_board(board, color, pseudo_legal_move);
+
+    !is_king_checked
+}
+
+pub fn apply_move_to_game(game: &mut Game, r#move: Move) {
+    let new_king_square = match r#move {
+        KingSideCastle => match game.next_move {
+            Color::White => Some(Square(File::C, Rank::One)),
+            Color::Black => Some(Square(File::C, Rank::Eight))
+        },
+        QueenSideCastle => match game.next_move {
+            Color::White => Some(Square(File::C, Rank::One)),
+            Color::Black => Some(Square(File::C, Rank::Eight))
+        },
+        Move::Normal { from, to , .. } if game.board[from].is_some_and(|u| u.kind == UnitKind::King) => Some(to),
+        _ => None
+    };
+
+    // update state for king moves
+    if let Some(new_king_square) = new_king_square  {
+        if game.next_move == Color::White {
+            game.white_king_position = new_king_square;
+            game.white_can_king_side_castle = false;
+            game.white_can_queen_side_castle = false;
+        } else {
+            game.black_king_position = new_king_square;
+            game.black_can_king_side_castle = false;
+            game.black_can_queen_side_castle = false;
+        }
+    }
+
+    if let Move::Normal { from, to, .. } = r#move {
+        // update state for rook moves
+        if from == Square(File::A, Rank::One) {
+            game.white_can_queen_side_castle = false;
+        } else if from == Square(File::H, Rank::One) {
+            game.white_can_king_side_castle = false;
+        } else if from == Square(File::A, Rank::Eight) {
+            game.black_can_queen_side_castle = false;
+        } else if from == Square(File::H, Rank::Eight) {
+            game.black_can_king_side_castle = false;
+        }
+
+        // update en passant state
+        let is_double_pawn_move = from.0 == to.0 
+            && from.1.idx().abs_diff(to.1.idx()) == 2
+            && game.board[from].is_some_and(|u| u.kind == UnitKind::Pawn);
+        if is_double_pawn_move {
+            game.en_passant_square = Some(to);
+        } else {
+            game.en_passant_square = None;
+        }
+
+        apply_move_to_board(&mut game.board, game.next_move, r#move);
+
+        game.next_move = get_other_color(game.next_move);
+    }
+}
+
+pub fn apply_move_to_board(board: &mut Board, color: Color, r#move: Move) {
+    match r#move {
+        QueenSideCastle => {
+            let rank = get_back_rank(color);
+            // move the king
+            board[Square(File::C, rank)] = board[Square(File::E, rank)];
+            board[Square(File::E, rank)] = None;
+            // move the rook
+            board[Square(File::D, rank)] = board[Square(File::A, rank)];
+            board[Square(File::A, rank)] = None;
+
+        }
+        KingSideCastle => {
+            let rank = get_back_rank(color);
+            // move the king
+            board[Square(File::G, rank)] = board[Square(File::E, rank)];
+            board[Square(File::E, rank)] = None;
+            // move the rook
+            board[Square(File::F, rank)] = board[Square(File::H, rank)];
+            board[Square(File::H, rank)] = None;
+        }
+        Move::Normal { from, to, .. } => {
+            board[to] = board[from];
+            board[from] = None;
+        }
+        Move::Promotion { from, to, promote_to, .. } => {
+            board[from] = None;
+            board[to] = Some(Unit { color: color, kind: promote_to });
+        }
+        EnPassant { from, to } => {
+            let capture_square = Square(to.0, from.1);
+            board[to] = board[from];
+            board[from] = None;
+            board[capture_square] = None;
+        }
+    }
+}
+
+fn revert_move_to_board(board: &mut Board, color: Color, r#move: Move) {
+    match r#move {
+        QueenSideCastle => {
+            let rank = get_back_rank(color);
+            // move the king
+            board[Square(File::E, rank)] = board[Square(File::C, rank)];
+            board[Square(File::C, rank)] = None;
+            // move the rook
+            board[Square(File::A, rank)] = board[Square(File::D, rank)];
+            board[Square(File::D, rank)] = None;
+
+        }
+        KingSideCastle => {
+            let rank = get_back_rank(color);
+            // move the king
+            board[Square(File::E, rank)] = board[Square(File::G, rank)];
+            board[Square(File::G, rank)] = None;
+            // move the rook
+            board[Square(File::H, rank)] = board[Square(File::F, rank)];
+            board[Square(File::F, rank)] = None;
+        }
+        Move::Normal { from, to, captured_unit } => {
+            board[from] = board[to];
+            board[to] = captured_unit.map(|k| Unit { kind: k, color: get_other_color(color)});
+        }
+        Move::Promotion { from, to, captured_unit, .. } => {
+            board[from] = Some(Unit { color: color, kind: UnitKind::Pawn });
+            board[to] = captured_unit.map(|k| Unit { kind: k, color: get_other_color(color)});
+        }
+        EnPassant { from, to } => {
+            let capture_square = Square(to.0, from.1);
+            board[from] = board[to];
+            board[to] = None;
+            board[capture_square] = Some(Unit { color: get_other_color(color), kind: UnitKind::Pawn });
+        }
+    }
+}
+
+fn get_other_color(color: Color) -> Color {
+    match color {
+        Color::White => Color::Black,
+        Color::Black => Color::White
+    }
 }
