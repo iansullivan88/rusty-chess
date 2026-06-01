@@ -17,7 +17,7 @@ pub enum Direction {
     Down,
     DownLeft,
     Left,
-    Upleft
+    UpLeft
 }
 
 pub static RAY_LOOKUP: LazyLock<RayLookup> = LazyLock::new(|| {
@@ -29,7 +29,7 @@ pub static RAY_LOOKUP: LazyLock<RayLookup> = LazyLock::new(|| {
         (Direction::Down, MoveOffset { file: 0, rank: -1} ),
         (Direction::DownLeft, MoveOffset { file: -1, rank: -1} ),
         (Direction::Left, MoveOffset { file: -1, rank: 0} ),
-        (Direction::Upleft, MoveOffset { file: 1, rank: -1} )
+        (Direction::UpLeft, MoveOffset { file: -1, rank: 1} )
     ];
 
     let mut rays = vec![Option::None; 8 * 8 * 8];
@@ -151,7 +151,7 @@ const BISHOP_DIRECTIONS: [Direction; 4] = [
     Direction::UpRight,
     Direction::DownRight,
     Direction::DownLeft,
-    Direction::Upleft
+    Direction::UpLeft
 ];
 
 const ROOK_DIRECTIONS: [Direction; 4] = [
@@ -169,7 +169,7 @@ const QUEEN_DIRECTIONS: [Direction; 8] = [
     Direction::UpRight,
     Direction::DownRight,
     Direction::DownLeft,
-    Direction::Upleft
+    Direction::UpLeft
 ];
 
 const PROMOTION_UNITS: [UnitKind; 4] = [
@@ -234,7 +234,7 @@ fn is_piece_at_offset(board: &Board, source: Square, offsets: &[MoveOffset], kin
         .any(|p| p.color == color && p.kind == kind)
 }
 
-fn get_target_squares_for_directions(board: &Board, square: Square, directions: &[Direction], moving_piece_color: Color) -> impl Iterator<Item = Square> {
+fn get_target_squares_for_directions(board: &Board, square: Square, directions: &[Direction], moving_piece_color: Color) -> impl Iterator<Item = Square> {    
     directions
         .iter()
         .flat_map(move |&direction| {
@@ -411,6 +411,10 @@ fn add_offset(square: Square, offset: MoveOffset) -> Option<Square> {
 pub fn is_legal_move(board: &mut Board, king_position: Square, color: Color, pseudo_legal_move: Move) -> bool {
     apply_move_to_board(board, color, pseudo_legal_move);
 
+    // update king position if this move updates it
+    let king_position = get_updated_king_square(king_position, pseudo_legal_move, color)
+        .unwrap_or(king_position);
+
     let other_color = get_other_color(color);
     let mut is_king_checked = false;
     
@@ -420,6 +424,9 @@ pub fn is_legal_move(board: &mut Board, king_position: Square, color: Color, pse
     // is king checked by pawn
     let attacking_pawn_offsets = if color == Color::White { &WHITE_KING_ATTACKING_PAWN_OFFSETS } else { &BLACK_KING_ATTACKING_PAWN_OFFSETS };
     is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, attacking_pawn_offsets, UnitKind::Pawn, other_color);
+
+    // is king checked by a king
+    is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, &KING_MOVE_OFFSETS, UnitKind::King, other_color);
 
     // is king checked by a diagonal moving piece
     is_king_checked = is_king_checked || is_next_piece_on_ray_of_kind(board, king_position, &BISHOP_DIRECTIONS, other_color, UnitKind::Bishop, UnitKind::Queen);
@@ -433,18 +440,8 @@ pub fn is_legal_move(board: &mut Board, king_position: Square, color: Color, pse
 }
 
 pub fn apply_move_to_game(game: &mut Game, r#move: Move) {
-    let new_king_square = match r#move {
-        KingSideCastle => match game.next_move {
-            Color::White => Some(Square(File::C, Rank::One)),
-            Color::Black => Some(Square(File::C, Rank::Eight))
-        },
-        QueenSideCastle => match game.next_move {
-            Color::White => Some(Square(File::C, Rank::One)),
-            Color::Black => Some(Square(File::C, Rank::Eight))
-        },
-        Move::Normal { from, to , .. } if game.board[from].is_some_and(|u| u.kind == UnitKind::King) => Some(to),
-        _ => None
-    };
+    let king_position = if game.next_move == Color::White { game.white_king_position } else { game.black_king_position };
+    let new_king_square = get_updated_king_square(king_position, r#move, game.next_move);
 
     // update state for king moves
     if let Some(new_king_square) = new_king_square  {
@@ -485,6 +482,21 @@ pub fn apply_move_to_game(game: &mut Game, r#move: Move) {
     apply_move_to_board(&mut game.board, game.next_move, r#move);
 
     game.next_move = get_other_color(game.next_move);
+}
+
+pub fn get_updated_king_square(current_king_square: Square, r#move: Move, color: Color) -> Option<Square> {
+    match r#move {
+        KingSideCastle => match color {
+            Color::White => Some(Square(File::C, Rank::One)),
+            Color::Black => Some(Square(File::C, Rank::Eight))
+        },
+        QueenSideCastle => match color {
+            Color::White => Some(Square(File::C, Rank::One)),
+            Color::Black => Some(Square(File::C, Rank::Eight))
+        },
+        Move::Normal { from, to , .. } if current_king_square == from => Some(to),
+        _ => None
+    }
 }
 
 pub fn apply_move_to_board(board: &mut Board, color: Color, r#move: Move) {
