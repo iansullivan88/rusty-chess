@@ -1,8 +1,8 @@
 pub mod commands;
 
-use std::{ops::{Index, IndexMut}, path::Component::ParentDir, sync::LazyLock};
+use std::{ops::{Index, IndexMut}, sync::LazyLock};
 
-use crate::{ALL_FILES, ALL_RANKS, Board, Color::{self, Black}, File, Game, Rank, Square, Unit, UnitKind::{self, Pawn}, get_other_color, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
+use crate::{ALL_FILES, ALL_RANKS, Board, Color::{self}, File, Game, Rank, Square, Unit, UnitKind::{self}, get_other_color, moves::Move::{EnPassant, KingSideCastle, QueenSideCastle}, utilities::StackVector};
 
 #[derive(Copy, Clone)]
 struct MoveOffset { file: i8, rank: i8 }
@@ -279,7 +279,7 @@ fn is_next_piece_on_ray_of_kind(board: &Board, source: Square, directions: &[Dir
             .next();
 
         if let Some(first_piece_in_direction) = first_piece_in_direction {
-            if (first_piece_in_direction.color == color && (first_piece_in_direction.kind == kind1 || first_piece_in_direction.kind == kind2)) {
+            if first_piece_in_direction.color == color && (first_piece_in_direction.kind == kind1 || first_piece_in_direction.kind == kind2)  {
                 return true;
             }
         }
