@@ -96,11 +96,6 @@ fn to_ray_lookup_index(square: Square, direction: Direction) -> usize {
     (direction as usize) * 8 * 8 + (file as usize) * 8 + (rank as usize)
 }
 
-const LEFT_RIGHT_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: 1, rank: 0 },
-    MoveOffset { file: -1, rank: 0 }
-];
-
 const KING_MOVE_OFFSETS: [MoveOffset; 8] = [
     // clockwise, starting at midnight
     MoveOffset { file: 0, rank: 1 },
@@ -132,16 +127,6 @@ const WHITE_PAWN_CAPTURE_OFFSETS: [MoveOffset; 2] = [
 const BLACK_PAWN_CAPTURE_OFFSETS: [MoveOffset; 2] = [
     MoveOffset { file: -1, rank: -1 },
     MoveOffset { file: 1, rank: -1 }
-];
-
-const BLACK_KING_ATTACKING_PAWN_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: -1, rank: -1 },
-    MoveOffset { file: 1, rank: -1 }
-];
-
-const WHITE_KING_ATTACKING_PAWN_OFFSETS: [MoveOffset; 2] = [
-    MoveOffset { file: -1, rank: 1 },
-    MoveOffset { file: 1, rank: 1 }
 ];
 
 const WHITE_MOVE_ONE_FORWARD: MoveOffset = MoveOffset { file: 0, rank: 1 };
@@ -199,6 +184,26 @@ const SQUARES_BETWEEN_BLACK_KING_AND_QUEEN_SIDE_ROOK: [Square; 3] = [
 const SQUARES_BETWEEN_BLACK_KING_AND_KING_SIDE_ROOK: [Square; 2] = [
     Square(File::F, Rank::Eight),
     Square(File::G, Rank::Eight)
+];
+
+const TWO_KING_SIDE_SQUARES_NEXT_TO_BLACK_KING: [Square; 2] = [
+    Square(File::F, Rank::Eight),
+    Square(File::G, Rank::Eight)
+];
+
+const TWO_KING_SIDE_SQUARES_NEXT_TO_WHITE_KING: [Square; 2] = [
+    Square(File::F, Rank::One),
+    Square(File::G, Rank::One)
+];
+
+const TWO_QUEEN_SIDE_SQUARES_NEXT_TO_BLACK_KING: [Square; 2] = [
+    Square(File::C, Rank::Eight),
+    Square(File::D, Rank::Eight)
+];
+
+const TWO_QUEEN_SIDE_SQUARES_NEXT_TO_WHITE_KING: [Square; 2] = [
+    Square(File::C, Rank::One),
+    Square(File::D, Rank::One)
 ];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -294,13 +299,25 @@ pub fn populate_pseudo_legal_moves_for_source_square(game: &Game, square: Square
 
     // castling
     if kind == UnitKind::King {
-        if (game.black_can_king_side_castle && color == Color::Black && squares_are_empty(&game.board, &SQUARES_BETWEEN_BLACK_KING_AND_KING_SIDE_ROOK)) ||
-           (game.white_can_king_side_castle && color == Color::White && squares_are_empty(&game.board, &SQUARES_BETWEEN_WHITE_KING_AND_KING_SIDE_ROOK)) {
-            moves.push(KingSideCastle);
-        }
-        if (game.black_can_queen_side_castle && color == Color::Black && squares_are_empty(&game.board, &SQUARES_BETWEEN_BLACK_KING_AND_QUEEN_SIDE_ROOK)) ||
-           (game.white_can_queen_side_castle && color == Color::White && squares_are_empty(&game.board, &SQUARES_BETWEEN_WHITE_KING_AND_QUEEN_SIDE_ROOK)) {
-            moves.push(QueenSideCastle);
+        let other_color = get_other_color(color);
+        let king_in_check = is_color_attacking_square(&game.board, square, other_color);
+        if !king_in_check {
+            // king side
+            let (squares_that_must_be_empty, squares_that_must_not_be_under_attack) = match color {
+                Color::White => (&SQUARES_BETWEEN_WHITE_KING_AND_KING_SIDE_ROOK, TWO_KING_SIDE_SQUARES_NEXT_TO_WHITE_KING),
+                Color::Black => (&SQUARES_BETWEEN_BLACK_KING_AND_KING_SIDE_ROOK, TWO_KING_SIDE_SQUARES_NEXT_TO_BLACK_KING)
+            };
+            if squares_are_empty(&game.board, squares_that_must_be_empty) && squares_that_must_not_be_under_attack.iter().all(|&s| !is_color_attacking_square(&game.board, s, other_color)) {
+                moves.push(KingSideCastle);
+            }
+            // queen side
+            let (squares_that_must_be_empty, squares_that_must_not_be_under_attack) = match color {
+                Color::White => (&SQUARES_BETWEEN_WHITE_KING_AND_QUEEN_SIDE_ROOK, TWO_QUEEN_SIDE_SQUARES_NEXT_TO_WHITE_KING),
+                Color::Black => (&SQUARES_BETWEEN_BLACK_KING_AND_QUEEN_SIDE_ROOK, TWO_QUEEN_SIDE_SQUARES_NEXT_TO_BLACK_KING)
+            };
+            if squares_are_empty(&game.board, squares_that_must_be_empty) && squares_that_must_not_be_under_attack.iter().all(|&s| !is_color_attacking_square(&game.board, s, other_color)) {
+                moves.push(QueenSideCastle);
+            }
         }
     }
 
@@ -416,27 +433,41 @@ pub fn is_legal_move(board: &mut Board, king_position: Square, color: Color, pse
         .unwrap_or(king_position);
 
     let other_color = get_other_color(color);
-    let mut is_king_checked = false;
-    
-    // is king checked by knight
-    is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, &KNIGHT_MOVE_OFFSETS, UnitKind::Knight, other_color);
-
-    // is king checked by pawn
-    let attacking_pawn_offsets = if color == Color::White { &WHITE_KING_ATTACKING_PAWN_OFFSETS } else { &BLACK_KING_ATTACKING_PAWN_OFFSETS };
-    is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, attacking_pawn_offsets, UnitKind::Pawn, other_color);
-
-    // is king checked by a king
-    is_king_checked = is_king_checked || is_piece_at_offset(board, king_position, &KING_MOVE_OFFSETS, UnitKind::King, other_color);
-
-    // is king checked by a diagonal moving piece
-    is_king_checked = is_king_checked || is_next_piece_on_ray_of_kind(board, king_position, &BISHOP_DIRECTIONS, other_color, UnitKind::Bishop, UnitKind::Queen);
-    
-    // is king checked by a horizontal moving piece
-    is_king_checked = is_king_checked || is_next_piece_on_ray_of_kind(board, king_position, &ROOK_DIRECTIONS, other_color, UnitKind::Rook, UnitKind::Queen);
+    let is_king_in_check = is_color_attacking_square(board, king_position, other_color);
 
     revert_move_to_board(board, color, pseudo_legal_move);
 
-    !is_king_checked
+    !is_king_in_check
+}
+
+pub fn is_king_in_check(game: &Game, color: Color) -> bool {
+    let king_position = if game.next_move == Color::White { game.white_king_position } else { game.black_king_position };
+    let other_color = get_other_color(color);
+    is_color_attacking_square(&game.board, king_position, other_color)
+}
+
+fn is_color_attacking_square(board: &Board, square: Square, attacking_color: Color) -> bool {
+    
+    let mut result = false;
+    
+    // is attacked by knight
+    result = result || is_piece_at_offset(board, square, &KNIGHT_MOVE_OFFSETS, UnitKind::Knight, attacking_color);
+
+    // is attacked by by pawn
+    // use the opposite color of the capture offset
+    let attacking_pawn_offsets = if attacking_color == Color::White { &BLACK_PAWN_CAPTURE_OFFSETS } else { &WHITE_PAWN_CAPTURE_OFFSETS };
+    result = result || is_piece_at_offset(board, square, attacking_pawn_offsets, UnitKind::Pawn, attacking_color);
+
+    // is attacked by a king
+    result = result || is_piece_at_offset(board, square, &KING_MOVE_OFFSETS, UnitKind::King, attacking_color);
+
+    // is attacked by a diagonal moving piece
+    result = result || is_next_piece_on_ray_of_kind(board, square, &BISHOP_DIRECTIONS, attacking_color, UnitKind::Bishop, UnitKind::Queen);
+    
+    // is attacked by a horizontal moving piece
+    result = result || is_next_piece_on_ray_of_kind(board, square, &ROOK_DIRECTIONS, attacking_color, UnitKind::Rook, UnitKind::Queen);
+
+    result
 }
 
 pub fn apply_move_to_game(game: &mut Game, r#move: Move) {

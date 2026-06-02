@@ -1,4 +1,4 @@
-use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, analysis::{Algorithm, choose_move}, get_other_color, moves::{apply_move_to_game, commands::parse_move, get_legal_moves}};
+use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, analysis::{Algorithm, choose_move}, get_other_color, moves::{apply_move_to_game, commands::parse_move, get_legal_moves, is_king_in_check}};
 use std::io::{self, BufWriter, StdoutLock, Write};
 
 fn main() {
@@ -16,7 +16,12 @@ fn run_game() -> io::Result<()>  {
         let legal_moves = get_legal_moves(&mut game);
 
         if legal_moves.len() == 0 {
-            println!("{} won!", get_other_color(game.next_move));
+            if is_king_in_check(&game, game.next_move) {
+                println!("{} won!", get_other_color(game.next_move));
+            } else {
+                println!("Stalemate");
+            }
+            
             break;
         }
 
