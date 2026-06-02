@@ -1,4 +1,4 @@
-use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, analysis::{Algorithm, choose_move}, get_other_color, moves::{apply_move_to_game, commands::parse_move, get_legal_moves, is_king_in_check}};
+use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, analysis::{Algorithm, choose_move}, get_other_color, moves::{Move, apply_move_to_game, commands::parse_move, get_legal_moves, is_king_in_check}};
 use std::io::{self, BufWriter, StdoutLock, Write};
 
 fn main() {
@@ -41,7 +41,14 @@ fn run_game() -> io::Result<()>  {
                 }
             }
             Color::Black => {
-                choose_move(&mut game, algorithm)
+                let stdout = io::stdout();
+                let mut writer = BufWriter::new(stdout.lock());
+                let chosen_move = choose_move(&mut game, algorithm);
+                print_move(&mut writer, &game.board, chosen_move)?;
+                write!(writer, "\n")?;
+                write!(writer, "\n")?;
+                chosen_move
+
             }
         };
 
@@ -136,4 +143,43 @@ fn color_string (color: Color) -> String {
         Color::White => "white"
     };
     String::from(color_slice)
+}
+
+// not a perfect implementation of notation but close enough
+fn print_move(writer: &mut BufWriter<io::StdoutLock<'_>>, board: &Board, r#move: Move) -> io::Result<()> {
+    fn format_unit_kind(kind: UnitKind) -> String {
+        let slice = match kind {
+            UnitKind::Bishop => "B",
+            UnitKind::King => "K",
+            UnitKind::Knight => "N",
+            UnitKind::Pawn => "",
+            UnitKind::Queen => "Q",
+            UnitKind::Rook => "R"
+        };
+
+        String::from(slice)
+    }
+    
+    fn print_move(f: &mut BufWriter<io::StdoutLock<'_>>, from: Square, to: Square, kind: UnitKind, promote_to: Option<UnitKind>, is_capture: bool) -> io::Result<()> {
+        
+        let promotion_text = promote_to.map_or(String::new(), |p| format!("={}", format_unit_kind(p)));
+
+        write!(f, "{}{}{}{}{}{}{}",
+            format_unit_kind(kind),
+            from.0.to_string().to_lowercase(),
+            from.1,
+            if is_capture { "x" } else { "" },
+            to.0.to_string().to_lowercase(),
+            to.1,
+            promotion_text)
+    }
+
+    match r#move {
+        Move::KingSideCastle => write!(writer, "o-o"),
+        Move::QueenSideCastle => write!(writer, "o-o-o"),
+        Move::Normal { from, to, captured_unit, .. } if let Some(Unit { kind, .. }) = board[from] => print_move(writer, from, to, kind, None, captured_unit.is_some()),
+        Move::Promotion { from, to,  captured_unit, promote_to } => print_move(writer, from, to, UnitKind::Pawn, Some(promote_to), captured_unit.is_some()),
+        Move::EnPassant { from, to } => print_move(writer, from, to, UnitKind::Pawn, None, true),
+        _ => write!(writer, "Cannot print move"),
+    }
 }
