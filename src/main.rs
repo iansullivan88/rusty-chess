@@ -27,7 +27,7 @@ fn run_game() -> io::Result<()>  {
 
         let r#move = match game.next_move {
             Color::White => {
-                println!("Enter move for {}", color_string(game.next_move));
+                println!("Enter move for {}:", color_string(game.next_move));
 
                 input.clear();
                 io::stdin().read_line(&mut input)?;
@@ -44,6 +44,7 @@ fn run_game() -> io::Result<()>  {
                 let stdout = io::stdout();
                 let mut writer = BufWriter::new(stdout.lock());
                 let chosen_move = choose_move(&mut game, algorithm);
+                println!("Move for {}:", color_string(game.next_move));
                 print_move(&mut writer, &game.board, chosen_move)?;
                 write!(writer, "\n")?;
                 write!(writer, "\n")?;
@@ -180,6 +181,6 @@ fn print_move(writer: &mut BufWriter<io::StdoutLock<'_>>, board: &Board, r#move:
         Move::Normal { from, to, captured_unit, .. } if let Some(Unit { kind, .. }) = board[from] => print_move(writer, from, to, kind, None, captured_unit.is_some()),
         Move::Promotion { from, to,  captured_unit, promote_to } => print_move(writer, from, to, UnitKind::Pawn, Some(promote_to), captured_unit.is_some()),
         Move::EnPassant { from, to } => print_move(writer, from, to, UnitKind::Pawn, None, true),
-        _ => write!(writer, "Cannot print move"),
+        _ => panic!("Cannot print move"),
     }
 }
