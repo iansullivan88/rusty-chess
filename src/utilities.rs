@@ -49,3 +49,34 @@ impl<T, const N: usize> Index<usize> for StackVector<T, N> {
         &self.items[index]
     }
 }
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct NonNanFloat(f64);
+
+impl Eq for NonNanFloat {}
+
+impl NonNanFloat {
+    pub fn new(val: f64) -> Self {
+        if val.is_nan() {
+            panic!("Cannot create NonNanFloat with NaN");
+        }
+
+        Self(val)
+    }
+
+    pub fn val(self) -> f64 {
+        self.0
+    }
+}
+
+impl PartialOrd for NonNanFloat {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for NonNanFloat {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.partial_cmp(&other.0).unwrap()
+    }
+}

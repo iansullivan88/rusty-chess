@@ -1,14 +1,32 @@
 use chess::{ALL_FILES, ALL_RANKS, Board, Color, Game, Square, Unit, UnitKind, analysis::{Algorithm, choose_move}, get_other_color, moves::{Move, apply_move_to_game, commands::parse_move, get_legal_moves, is_king_in_check}};
 use std::io::{self, BufWriter, StdoutLock, Write};
+use clap::{Parser, ValueEnum};
 
-fn main() {
-    run_game().expect("Unexpected error");
+#[derive(Clone, ValueEnum)]
+enum AlgorithmChoice {
+    Random,
+    NextBestMove
 }
 
-fn run_game() -> io::Result<()>  {
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, value_enum, default_value_t = AlgorithmChoice::NextBestMove)]
+    algorithm: AlgorithmChoice
+}
+
+fn main() {
+    let args = Args::parse();
+    run_game(args).expect("Unexpected error");
+}
+
+fn run_game(args: Args) -> io::Result<()>  {
     let mut game = Game::new();
     let mut input = String::new();
-    let algorithm = Algorithm::Random;
+    let algorithm = match args.algorithm {
+        AlgorithmChoice::NextBestMove => Algorithm::NextBestMove,
+        AlgorithmChoice::Random => Algorithm::Random
+    };
 
     loop {
         print_board(&game.board)?;

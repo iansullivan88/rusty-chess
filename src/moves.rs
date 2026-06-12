@@ -606,6 +606,15 @@ fn revert_move_to_board(board: &mut Board, color: Color, r#move: Move) {
     }
 }
 
+pub fn use_modified_board<T, F>(board: &mut Board, color: Color, r#move: Move, r#use: F) -> T
+    where F: FnOnce(&Board) -> T {
+        apply_move_to_board(board, color, r#move);
+        let result = r#use(board);
+        revert_move_to_board(board, color, r#move);
+
+        result
+}
+
 pub fn get_legal_moves(game: &mut Game) -> MoveList {
     let mut pseudo_legal_moves = MoveList::new(Move::KingSideCastle);
     for file in ALL_FILES {
